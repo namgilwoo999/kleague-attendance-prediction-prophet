@@ -61,5 +61,5 @@ geckodriver
 *.exe
 
 # Personal upload guide (private)
-GITHUB_UPLOAD_GUIDE.md
+GITHUB.md
 kleague_crawler.py
