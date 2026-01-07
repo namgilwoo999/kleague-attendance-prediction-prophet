@@ -1,0 +1,22 @@
+# K리그 관중 예측 모델 필수 패키지
+
+# Core ML Libraries
+prophet==1.1.5
+scikit-learn==1.3.0
+numpy==1.24.3
+pandas==2.0.3
+
+# Visualization
+matplotlib==3.7.2
+seaborn==0.12.2
+
+# Data Processing
+openpyxl==3.1.2
+
+# Web Scraping (데이터 수집 시 필요)
+selenium==4.11.2
+beautifulsoup4==4.12.2
+requests==2.31.0
+
+# Utilities
+python-dateutil==2.8.2
