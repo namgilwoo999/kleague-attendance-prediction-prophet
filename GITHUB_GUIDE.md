@@ -45,7 +45,7 @@ k리그_관중_예측/
 2. 우측 상단 `+` 버튼 → `New repository` 클릭
 3. 저장소 정보 입력:
    - **Repository name**: `kleague-attendance-prediction-prophet`
-   - **Description**: Facebook Prophet를 활용한 K리그 관중 수 예측 (R² 0.624, MAE 2,979명)
+   - **Description**: Facebook Prophet를 활용한 K리그 관중 수 예측
    - **Public** 선택 (공개 프로젝트)
    - **Initialize this repository with a README** 체크 해제 (이미 README.md 있음)
 4. `Create repository` 클릭
@@ -65,10 +65,10 @@ git init
 git add .
 
 # 첫 번째 커밋
-git commit -m "Initial commit: Facebook Prophet를 활용한 K리그 관중 수 예측 (R² 0.624, MAE 2,979명)"
+git commit -m "Initial commit: Facebook Prophet를 활용한 K리그 관중 수 예측"
 
 # GitHub 원격 저장소 연결 (본인의 GitHub 주소로 변경)
-git remote add origin https://github.com/YOUR_USERNAME/kleague-attendance-prediction-prophet.git
+git remote add origin https://github.com/namgilwoo999/kleague-attendance-prediction-prophet.git
 
 # 메인 브랜치로 설정
 git branch -M main
