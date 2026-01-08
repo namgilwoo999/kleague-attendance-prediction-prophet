@@ -3,7 +3,6 @@ Facebook Prophet를 활용한 K리그 관중 수 예측
 1. Random Forest 피처 중요도 분석
 2. Prophet 하이퍼파라미터 그리드 서치
 3. 2026 시즌 전체 라운드별 예측
-
 """
 
 import pandas as pd
@@ -16,30 +15,54 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings
 warnings.filterwarnings('ignore')
+
  
+
 # 더비 경기 정의 (팀 조합 기반)
 # 주요 더비 매치 정의 - 실제 데이터 기반으로 추출
+
 DERBY_PAIRS = {
     # 지역 라이벌
-    ('울산', '포항'), ('포항', '울산'),        
-    ('서울', '인천'), ('인천', '서울'),        
-    ('서울', '수원FC'), ('수원FC', '서울'),    
-    ('포항', '대구'), ('대구', '포항'),        
-    ('광주', '전북'), ('전북', '광주'),        
-    ('대전', '대구'), ('대구', '대전'),          
+    ('울산', '포항'), ('포항', '울산'),
+    ('서울', '인천'), ('인천', '서울'),
+    ('서울', '안양'), ('안양', '서울'),
+    ('포항', '울산'), ('울산', '포항'),
+    ('대전', '전북'), ('전북', '대전'),
+    ('부천', '제주'), ('제주', '부천'),
 
     # 강팀 라이벌
-    ('전북', '울산'), ('울산', '전북'),        
-    ('수원FC', '전북'), ('전북', '수원FC'),      
-    ('광주', '대구'), ('대구', '광주'),        
+    ('전북', '울산'), ('울산', '전북'),
+    ('대전', '전북'), ('전북', '대전'),
+    ('서울', '인천'), ('인천', '서울'),
 }
+
+
+
+# 빅클럽 정의 (광역시 기반 팀)
+BIG_CLUBS = {
+    '서울', '수원삼성', '수원',
+    '대전', '인천', '광주', '대구',
+    '전북', '울산', '포항'
+}
+
+
 
 def is_derby_match(home_team: str, away_team: str) -> int:
     """두 팀의 조합이 더비인지 확인"""
     return 1 if (home_team, away_team) in DERBY_PAIRS else 0
 
+
+
+def is_big_club_match(home_team: str, away_team: str) -> int:
+    """홈 또는 원정 중 하나 이상이 빅클럽인지 확인"""
+    return 1 if (home_team in BIG_CLUBS or away_team in BIG_CLUBS) else 0
+
+
+
 # 1. 데이터 로드 및 피처 엔지니어링
-print("\n[1단계] 데이터 로드 및 피처 엔지니어링...")
+print("\n[1단계] 데이터 로드 및 피처 엔지니어링")
+
+
 
 # 상대 경로
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -47,7 +70,7 @@ data_path = os.path.join(base_dir, "data/")
 results_path = os.path.join(base_dir, "results/")
 os.makedirs(results_path, exist_ok=True)
 
-years = [2022, 2023, 2024, 2025]
+years = [2022, 2023, 2024, 2025] # 2026 추가 예정
 
 dfs = []
 for year in years:
@@ -60,6 +83,8 @@ for year in years:
 
 df_all = pd.concat(dfs, ignore_index=True)
 print(f"\n총 경기: {len(df_all)}건")
+
+
 
 # 기본 전처리
 df_all['date'] = pd.to_datetime(df_all['date'])
@@ -92,30 +117,58 @@ overall_avg = df_all['attendance'].mean()
 df_all['home_team_factor'] = df_all['home_team'].map(team_avg) / overall_avg
 df_all['home_team_factor'].fillna(1.0, inplace=True)
 
+# 빅클럽 경기 여부
+if 'home_team' in df_all.columns and 'away_team' in df_all.columns:
+    df_all['is_big_club_match'] = df_all.apply(
+        lambda row: is_big_club_match(row['home_team'], row['away_team']), axis=1
+    )
+else:
+    df_all['is_big_club_match'] = 0
+
+
+
 # 순위 피처
 for col in ['home_rank_before', 'away_rank_before']:
     if col in df_all.columns:
         df_all[col] = pd.to_numeric(df_all[col], errors='coerce')
 
+
+
 if 'home_rank_before' in df_all.columns and 'away_rank_before' in df_all.columns:
     df_all['rank_avg'] = (df_all['home_rank_before'] + df_all['away_rank_before']) / 2
     df_all['is_top_match'] = ((df_all['home_rank_before'] <= 3) & (df_all['away_rank_before'] <= 3)).astype(int)
+    # 1-2위 팀 간 경기 (우승 경쟁)
+    df_all['is_championship_race'] = ((df_all['home_rank_before'] <= 2) & (df_all['away_rank_before'] <= 2)).astype(int)
+    # 순위 기반 최근 폼 추정 (순위가 낮을수록 높은 점수)
+    df_all['recent_form_score'] = (13 - df_all[['home_rank_before', 'away_rank_before']].mean(axis=1)) / 11
     df_all['rank_avg'].fillna(6.5, inplace=True)
+    df_all['recent_form_score'].fillna(0.5, inplace=True)
+
 else:
     df_all['rank_avg'] = 6.5
     df_all['is_top_match'] = 0
+    df_all['is_championship_race'] = 0
+    df_all['recent_form_score'] = 0.5
 
 df_all['is_top_match'].fillna(0, inplace=True)
+df_all['is_championship_race'].fillna(0, inplace=True)
 
 # 라운드 피처
+
 if 'round' in df_all.columns:
     df_all['round'] = pd.to_numeric(df_all['round'], errors='coerce')
+    df_all['is_opening_match'] = (df_all['round'] == 1).astype(int)  # 개막전
+    df_all['is_final_rounds'] = (df_all['round'] >= 36).astype(int)  # 마지막 3라운드
     df_all['is_season_start'] = (df_all['round'] <= 5).astype(int)
     df_all['is_season_end'] = (df_all['round'] >= 33).astype(int)
 else:
+    df_all['is_opening_match'] = 0
+    df_all['is_final_rounds'] = 0
     df_all['is_season_start'] = 0
     df_all['is_season_end'] = 0
 
+df_all['is_opening_match'].fillna(0, inplace=True)
+df_all['is_final_rounds'].fillna(0, inplace=True)
 df_all['is_season_start'].fillna(0, inplace=True)
 df_all['is_season_end'].fillna(0, inplace=True)
 
@@ -124,12 +177,16 @@ df_clean = df_all[df_all['attendance'] >= 500].copy()
 print(f"  이상치 제거: {len(df_all) - len(df_clean)}건")
 
 # 2. Random Forest 피처 중요도 분석
+
 print("\n[2단계] Random Forest 피처 중요도 분석...")
 
 feature_cols = ['is_weekend', 'is_derby', 'temperature', 'humidity',
                 'home_team_factor', 'rank_avg', 'is_top_match',
                 'is_evening', 'is_holiday_season', 'month', 'day_of_week',
-                'is_season_start', 'is_season_end']
+                'is_season_start', 'is_season_end',
+                'is_big_club_match', 'is_championship_race', 'recent_form_score',
+                'is_opening_match', 'is_final_rounds']
+
 
 df_rf = df_clean[feature_cols + ['attendance']].dropna()
 X = df_rf[feature_cols]
@@ -139,15 +196,21 @@ y = df_rf['attendance']
 rf = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42, n_jobs=-1)
 rf.fit(X, y)
 
+
 # 피처 중요도
 importances = pd.DataFrame({
     '피처': feature_cols,
     '중요도': rf.feature_importances_
 }).sort_values('중요도', ascending=False)
 
+
+
 print("\n  피처 중요도 순위:")
+
 for idx, row in importances.iterrows():
-    print(f"    {row['피처']:<20} {row['중요도']:.4f}")
+    print(f"{row['피처']:<20} {row['중요도']:.4f}")
+
+
 
 # 상위 피처 선택 (중요도 0.03 이상 또는 상위 8개)
 threshold = 0.03
@@ -162,7 +225,6 @@ print("\n[3단계] Prophet 데이터 준비...")
 
 df_prophet = df_clean[['date', 'attendance'] + selected_features].dropna()
 df_prophet = df_prophet.rename(columns={'date': 'ds', 'attendance': 'y'})
-
 train_size = int(len(df_prophet) * 0.85)
 df_train = df_prophet.iloc[:train_size].copy()
 df_test = df_prophet.iloc[train_size:].copy()
@@ -179,11 +241,13 @@ param_grid = {
     'seasonality_mode': ['multiplicative']
 }
 
+
 best_params = None
 best_score = float('inf')
 results = []
 
 print("  그리드 서치 진행 중...")
+
 for cp in param_grid['changepoint_prior_scale']:
     for sp in param_grid['seasonality_prior_scale']:
         for sm in param_grid['seasonality_mode']:
@@ -200,23 +264,25 @@ for cp in param_grid['changepoint_prior_scale']:
             # 회귀변수 추가
             for feat in selected_features:
                 model.add_regressor(feat)
-
             model.fit(df_train)
             forecast = model.predict(df_test)
-
             mae = mean_absolute_error(df_test['y'], forecast['yhat'])
             results.append({
+
                 'cp': cp,
                 'sp': sp,
                 'sm': sm,
                 'mae': mae
             })
 
+
             if mae < best_score:
                 best_score = mae
                 best_params = {'cp': cp, 'sp': sp, 'sm': sm}
 
-            print(f"    cp={cp}, sp={sp}, sm={sm} -> MAE: {mae:.0f}")
+            print(f"cp={cp}, sp={sp}, sm={sm} -> MAE: {mae:.0f}")
+
+
 
 print(f"\n  최적 파라미터:")
 print(f"changepoint_prior_scale: {best_params['cp']}")
@@ -238,24 +304,27 @@ final_model = Prophet(
     changepoint_range=0.8
 )
 
+
+
 for feat in selected_features:
     final_model.add_regressor(feat)
 
 final_model.fit(df_train)
 print("학습 완료!")
 
+
 # 6. 성능 평가
 print("\n[6단계] 모델 성능 평가...")
+
+
 
 forecast_test = final_model.predict(df_test)
 actual = df_test['y'].values
 predicted = forecast_test['yhat'].clip(lower=0).values
-
 mae = mean_absolute_error(actual, predicted)
 rmse = np.sqrt(mean_squared_error(actual, predicted))
 mape = np.mean(np.abs((actual - predicted) / actual)) * 100
 r2 = r2_score(actual, predicted)
-
 residuals = actual - predicted
 
 print(f"\n[성능 지표]")
@@ -274,6 +343,7 @@ print(f"±3,000명:{acc_3k:>7.1f}%")
 print(f"±5,000명:{acc_5k:>7.1f}%")
 
 # 7. 2026 시즌 전체 라운드별 예측
+
 print("\n[7단계] 2026 시즌 전체 라운드별 예측...")
 
 # 2026 일정 CSV 파일이 있는지 확인
@@ -299,9 +369,12 @@ if os.path.exists(schedule_2026_file):
         print(f"팀 정보 없음 - 더비 경기 감지 불가")
 
 else:
+
     print(f"2026 일정 파일 없음")
     print(f"합성 일정 생성 중...")
     print(f"실제 일정이 나오면 '{schedule_2026_file}' 파일을 생성하세요")
+
+
 
     # 합성 스케줄 생성 (38라운드, 주 2경기, 3월 시작)
     season_2026 = []
@@ -329,8 +402,9 @@ else:
     np.random.seed(42)
     future_2026['is_derby'] = np.random.binomial(1, derby_probability, size=len(future_2026))
 
-    print(f"  합성 일정 생성 완료: {len(future_2026)}경기")
-    print(f"  더비 경기 확률적 배정: {future_2026['is_derby'].sum()}경기 (약 {derby_probability*100:.1f}%)")
+    print(f"합성 일정 생성 완료: {len(future_2026)}경기")
+
+    print(f"더비 경기 확률적 배정: {future_2026['is_derby'].sum()}경기 (약 {derby_probability*100:.1f}%)")
 
 # 시즌별 평균값 계산
 avg_temp = df_train.groupby(df_train['ds'].dt.month)['temperature'].mean().to_dict()
@@ -348,18 +422,49 @@ future_2026['home_team_factor'] = 1.0
 future_2026['rank_avg'] = 6.5
 future_2026['is_top_match'] = 0
 
+# 새 피처 추가
+future_2026['is_big_club_match'] = 1  # 대부분 빅클럽 포함 경기로 가정
+future_2026['is_championship_race'] = 0  # 기본값, 시즌 후반부에 높은 값 설정
+future_2026['recent_form_score'] = 0.5  # 평균값
+
 if 'round' in future_2026.columns:
+    future_2026['is_opening_match'] = (future_2026['round'] == 1).astype(int)
+    future_2026['is_final_rounds'] = (future_2026['round'] >= 36).astype(int)
     future_2026['is_season_start'] = (future_2026['round'] <= 5).astype(int)
     future_2026['is_season_end'] = (future_2026['round'] >= 33).astype(int)
+
+    # 시즌 후반(30라운드 이후)에 우승 경쟁 가능성 증가
+    future_2026['is_championship_race'] = ((future_2026['round'] >= 30) & (future_2026['round'] <= 37)).astype(int) * 0.3
 else:
+    future_2026['is_opening_match'] = 0
+    future_2026['is_final_rounds'] = 0
     future_2026['is_season_start'] = 0
     future_2026['is_season_end'] = 0
 
 # 예측 실행
 forecast_2026 = final_model.predict(future_2026)
-forecast_2026['yhat'] = np.maximum(forecast_2026['yhat'].values, 3000)  # 최소 3000명
+
+# 기본 하한선 적용
+forecast_2026['yhat'] = np.maximum(forecast_2026['yhat'].values, 3000)
+
+# 특수 경기 보정 계수 적용
+boosted = forecast_2026['yhat'].values.copy()
+for i in range(len(future_2026)):
+    boost = 1.0
+    if future_2026.iloc[i].get('is_opening_match', 0) == 1:
+        boost *= 1.8
+    if future_2026.iloc[i].get('is_derby', 0) == 1:
+        boost *= 1.3
+    if future_2026.iloc[i].get('is_championship_race', 0) > 0:
+        boost *= 1.5
+    if future_2026.iloc[i].get('is_big_club_match', 0) == 1:
+        boost *= 1.2
+    if boost > 1.0:
+        boosted[i] = boosted[i] * boost
+
+forecast_2026['yhat'] = boosted
 forecast_2026['yhat_lower'] = np.maximum(forecast_2026['yhat_lower'].values, 0)
-forecast_2026['yhat_upper'] = np.maximum(forecast_2026['yhat_upper'].values, 5000)
+forecast_2026['yhat_upper'] = np.maximum(forecast_2026['yhat'].values * 1.2, 5000)
 
 print(f"  2026 시즌 총 {len(future_2026)}경기 예측 완료")
 print(f"  기간: {future_2026['ds'].min().date()} ~ {future_2026['ds'].max().date()}")
@@ -385,6 +490,7 @@ if 'round' in future_2026.columns:
     season_2026_result.insert(0, '라운드', future_2026['round'])
     season_2026_result.insert(1, '경기번호', future_2026.get('game_in_round', range(1, len(future_2026)+1)))
 
+
 # 팀 정보 추가 (있는 경우)
 if 'home_team' in future_2026.columns and 'away_team' in future_2026.columns:
     season_2026_result.insert(2, '홈팀', future_2026['home_team'])
@@ -400,6 +506,7 @@ if 'round' in future_2026.columns:
         '예측관중': ['mean', 'min', 'max'],
         '더비': lambda x: (x == '더비').sum()
     })
+
     round_summary.columns = ['시작날짜', '평균관중', '최소관중', '최대관중', '더비경기수']
     for col in ['평균관중', '최소관중', '최대관중', '더비경기수']:
         round_summary[col] = round_summary[col].astype(int)
@@ -415,6 +522,7 @@ validation_result = pd.DataFrame({
     '하한95': np.maximum(forecast_test['yhat_lower'].values, 0).astype(int),
     '상한95': forecast_test['yhat_upper'].values.astype(int)
 })
+
 validation_result.to_csv(f"{results_path}검증데이터_예측결과.csv", index=False, encoding='utf-8-sig')
 print("검증데이터_예측결과.csv 저장")
 
@@ -428,6 +536,7 @@ performance = pd.DataFrame({
     '값': [mae, rmse, mape, r2, acc_1k, acc_3k, acc_5k],
     '단위': ['명', '명', '%', '-', '%', '%', '%']
 })
+
 performance.to_csv(f"{results_path}모델성능.csv", index=False, encoding='utf-8-sig')
 print("모델성능.csv 저장")
 
@@ -470,6 +579,8 @@ print(f"±1,000명:{acc_1k:>7.1f}%")
 print(f"±3,000명:{acc_3k:>7.1f}%")
 print(f"±5,000명:{acc_5k:>7.1f}%")
 
+
+
 print(f"\n[6] 2026 시즌 예측")
 print(f"총 경기:{len(season_2026_result):>7}경기")
 if 'round' in future_2026.columns:
@@ -491,9 +602,8 @@ monthly_summary = season_2026_result.groupby(season_2026_result['날짜'].apply(
 for month, avg in monthly_summary.items():
     print(f"{month}월: {avg:>7,.0f}명")
 
-print("\n" + "=" * 80)
+print("\n")
 print("완료!")
-print("=" * 80)
 
 print("\n생성된 파일:")
 print("[데이터]")
@@ -505,5 +615,7 @@ print("피처중요도.csv - 피처 중요도")
 print("모델성능.csv - 성능 지표")
 print("최적파라미터.csv - 최적 파라미터")
 print("더비_팀조합.csv - 더비 팀 조합 정의")
+
 print("\n[시각화]")
 print("시각화는 visualization.ipynb를 실행하세요")
+
