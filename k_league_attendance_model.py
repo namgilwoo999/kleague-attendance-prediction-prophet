@@ -18,9 +18,7 @@ warnings.filterwarnings('ignore')
 
  
 
-# 더비 경기 정의 (팀 조합 기반)
-# 주요 더비 매치 정의 - 실제 데이터 기반으로 추출
-
+# 더비 경기
 DERBY_PAIRS = {
     # 지역 라이벌
     ('울산', '포항'), ('포항', '울산'),
@@ -62,8 +60,6 @@ def is_big_club_match(home_team: str, away_team: str) -> int:
 # 1. 데이터 로드 및 피처 엔지니어링
 print("\n[1단계] 데이터 로드 및 피처 엔지니어링")
 
-
-
 # 상대 경로
 base_dir = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(base_dir, "data/")
@@ -83,8 +79,6 @@ for year in years:
 
 df_all = pd.concat(dfs, ignore_index=True)
 print(f"\n총 경기: {len(df_all)}건")
-
-
 
 # 기본 전처리
 df_all['date'] = pd.to_datetime(df_all['date'])
@@ -202,7 +196,6 @@ importances = pd.DataFrame({
     '피처': feature_cols,
     '중요도': rf.feature_importances_
 }).sort_values('중요도', ascending=False)
-
 
 
 print("\n  피처 중요도 순위:")
@@ -347,7 +340,7 @@ print(f"±5,000명:{acc_5k:>7.1f}%")
 print("\n[7단계] 2026 시즌 전체 라운드별 예측...")
 
 # 2026 일정 CSV 파일이 있는지 확인
-schedule_2026_file = os.path.join(data_path, "k_league1_2026_schedule.csv")
+schedule_2026_file = os.path.join(data_path, "K_league1_2026.csv")
 
 if os.path.exists(schedule_2026_file):
     print(f"2026 일정 파일 발견: {schedule_2026_file}")
